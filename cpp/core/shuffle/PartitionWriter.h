@@ -28,6 +28,8 @@ class EvictHandle {
 
   virtual arrow::Status evict(uint32_t partitionId, std::unique_ptr<arrow::ipc::IpcPayload> payload) = 0;
 
+  virtual arrow::Status evict(uint32_t partitionId, const char* data) = 0;
+
   virtual arrow::Status finish() = 0;
 };
 

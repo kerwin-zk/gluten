@@ -166,19 +166,18 @@ static inline void backtrace() {
   free(strings);
 }
 
-static inline arrow::Compression::type getCompressionType(JNIEnv* env, jstring codecJstr) {
+static inline const std::string& getCompressionType(JNIEnv* env, jstring codecJstr) {
   if (codecJstr == NULL) {
-    return arrow::Compression::UNCOMPRESSED;
+    return "none";
   }
   auto codec = env->GetStringUTFChars(codecJstr, JNI_FALSE);
 
   // Convert codec string into lowercase.
   std::string codecLower;
   std::transform(codec, codec + std::strlen(codec), std::back_inserter(codecLower), ::tolower);
-  GLUTEN_ASSIGN_OR_THROW(auto compressionType, arrow::util::Codec::GetCompressionType(codecLower));
 
   env->ReleaseStringUTFChars(codecJstr, codec);
-  return compressionType;
+  return codecLower;
 }
 
 static inline gluten::CodecBackend getCodecBackend(JNIEnv* env, jstring codecJstr) {
@@ -365,4 +364,15 @@ class CelebornClient : public RssClient {
   jobject javaCelebornShuffleWriter_;
   jmethodID javaCelebornPushPartitionData_;
   jbyteArray array_;
+};
+
+class JavaInputStreamWrapper {
+public:
+  virtual ~JavaInputStreamWrapper() = default;
+
+  virtual arrow::Status close() = 0;
+
+  virtual int64_t tell() = 0;
+
+  virtual int64_t read(int64_t nbytes, void* out) = 0;
 };

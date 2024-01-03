@@ -28,6 +28,7 @@ import org.apache.celeborn.client.ShuffleClient
 import org.apache.celeborn.common.CelebornConf
 
 import java.io.IOException
+import java.util.Locale
 
 abstract class CelebornHashBasedColumnarShuffleWriter[K, V](
     handle: CelebornShuffleHandle[K, V, V],
@@ -52,6 +53,11 @@ abstract class CelebornHashBasedColumnarShuffleWriter[K, V](
   protected val mapId: Int = context.partitionId()
 
   protected val clientPushBufferMaxSize: Int = celebornConf.clientPushBufferMaxSize
+
+  protected val clientSortMemoryMaxSize: Long = celebornConf.clientPushSortMemoryThreshold
+
+  protected val shuffleWriterType: String =
+    celebornConf.shuffleWriterMode.name.toLowerCase(Locale.ROOT)
 
   protected val celebornPartitionPusher = new CelebornPartitionPusher(
     shuffleId,

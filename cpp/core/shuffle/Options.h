@@ -31,11 +31,14 @@ static constexpr double kDefaultBufferReallocThreshold = 0.25;
 static constexpr bool kEnableBufferedWrite = true;
 static constexpr bool kWriteEos = true;
 
+enum ShuffleWriterType { kHashShuffle, kSortShuffle };
 enum PartitionWriterType { kLocal, kCeleborn };
 
 struct ShuffleReaderOptions {
   arrow::ipc::IpcReadOptions ipc_read_options = arrow::ipc::IpcReadOptions::Defaults();
   arrow::Compression::type compression_type = arrow::Compression::type::LZ4_FRAME;
+  std::string compression_type_str = "lz4";
+  ShuffleWriterType shuffle_writer_type = kHashShuffle;
   CodecBackend codec_backend = CodecBackend::NONE;
 
   static ShuffleReaderOptions defaults();
@@ -48,11 +51,13 @@ struct ShuffleWriterOptions {
   int32_t compression_threshold = kDefaultCompressionThreshold;
   double buffer_realloc_threshold = kDefaultBufferReallocThreshold;
   arrow::Compression::type compression_type = arrow::Compression::LZ4_FRAME;
+  std::string compression_type_str = "lz4";
   CodecBackend codec_backend = CodecBackend::NONE;
   CompressionMode compression_mode = CompressionMode::BUFFER;
   bool buffered_write = kEnableBufferedWrite;
   bool write_eos = kWriteEos;
 
+  ShuffleWriterType shuffle_writer_type = ShuffleWriterType::kHashShuffle;
   PartitionWriterType partition_writer_type = PartitionWriterType::kLocal;
   Partitioning partitioning = Partitioning::kRoundRobin;
 

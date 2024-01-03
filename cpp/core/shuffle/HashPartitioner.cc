@@ -52,4 +52,37 @@ arrow::Status gluten::HashPartitioner::compute(
   return arrow::Status::OK();
 }
 
+arrow::Status gluten::HashPartitioner::compute(
+    const int32_t* pidArr,
+    const int64_t numRows,
+    const int32_t vectorIndex,
+    std::unordered_map<int32_t, std::vector<int64_t>>& rowVectorIndexMap) {
+
+  for (auto i = 0; i < numRows; ++i) {
+    auto pid = pidArr[i] % numPartitions_;
+#if defined(__x86_64__)
+    // force to generate ASM
+    __asm__(
+        "lea (%[num_partitions],%[pid],1),%[tmp]\n"
+        "test %[pid],%[pid]\n"
+        "cmovs %[tmp],%[pid]\n"
+        : [pid] "+r"(pid)
+        : [num_partitions] "r"(numPartitions_), [tmp] "r"(0));
+#else
+    if (pid < 0) {
+      pid += numPartitions_;
+    }
+#endif
+    if (auto it = rowVectorIndexMap.find(pid);it != rowVectorIndexMap.end()) {
+      int64_t combined = (static_cast<int64_t>(vectorIndex) << 32) | (i & 0xFFFFFFFFLL);
+      it->second.push_back(combined);
+    } else {
+      const std::vector<int64_t> values;
+      rowVectorIndexMap[pid] = values;
+    }
+  }
+
+  return arrow::Status::OK();
+}
+
 } // namespace gluten

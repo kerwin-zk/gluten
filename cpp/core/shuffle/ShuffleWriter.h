@@ -91,11 +91,15 @@ class ShuffleWriter : public Evictable {
 
   virtual arrow::Status split(std::shared_ptr<ColumnarBatch> cb, int64_t memLimit) = 0;
 
+  virtual arrow::Status sort(std::shared_ptr<ColumnarBatch> sort, int64_t memLimit) = 0;
+
   virtual arrow::Result<std::unique_ptr<arrow::ipc::IpcPayload>> createPayloadFromBuffer(
       uint32_t partitionId,
       bool reuseBuffers) = 0;
 
   virtual arrow::Status evictPayload(uint32_t partitionId, std::unique_ptr<arrow::ipc::IpcPayload> payload) = 0;
+
+  virtual arrow::Status evictRowVector() = 0;
 
   virtual arrow::Status stop() = 0;
 
@@ -207,6 +211,8 @@ class ShuffleWriter : public Evictable {
 
   std::vector<int64_t> partitionLengths_;
   std::vector<int64_t> rawPartitionLengths_; // Uncompressed size.
+
+  std::vector<int64_t> rowVectorLengths_;
 
   std::unique_ptr<arrow::util::Codec> codec_;
 

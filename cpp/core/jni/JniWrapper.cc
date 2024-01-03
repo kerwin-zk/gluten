@@ -150,6 +150,70 @@ class JavaInputStreamAdaptor final : public arrow::io::InputStream {
   bool closed_ = false;
 };
 
+class JavaInputStreamVeloxWrapper final : public JavaInputStreamWrapper{
+public:
+  JavaInputStreamVeloxWrapper(JNIEnv* env, jobject jniIn) {
+    // IMPORTANT: DO NOT USE LOCAL REF IN DIFFERENT THREAD
+    if (env->GetJavaVM(&vm_) != JNI_OK) {
+      std::string errorMessage = "Unable to get JavaVM instance";
+      throw gluten::GlutenException(errorMessage);
+    }
+    jniIn_ = env->NewGlobalRef(jniIn);
+  }
+
+  ~JavaInputStreamVeloxWrapper() {
+    try {
+      auto status = JavaInputStreamVeloxWrapper::close();
+      if (!status.ok()) {
+        DEBUG_OUT << __func__ << " call JavaInputStreamVeloxWrapper::Close() failed, status:" << status.ToString()
+                  << std::endl;
+      }
+    } catch (std::exception& e) {
+      DEBUG_OUT << __func__ << " call JavaInputStreamVeloxWrapper::Close() got exception:" << e.what() << std::endl;
+    }
+  }
+
+  // not thread safe
+  arrow::Status close() override {
+    if (closed_) {
+      return arrow::Status::OK();
+    }
+    JNIEnv* env;
+    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+    env->CallVoidMethod(jniIn_, jniByteInputStreamClose);
+    checkException(env);
+    env->DeleteGlobalRef(jniIn_);
+    vm_->DetachCurrentThread();
+    closed_ = true;
+    return arrow::Status::OK();
+  }
+
+  int64_t tell() override {
+    JNIEnv* env;
+    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+    jlong told = env->CallLongMethod(jniIn_, jniByteInputStreamTell);
+    checkException(env);
+    return told;
+  }
+
+  bool closed() {
+    return closed_;
+  }
+
+  int64_t read(int64_t nbytes, void* out) override {
+    JNIEnv* env;
+    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+    jlong read = env->CallLongMethod(jniIn_, jniByteInputStreamRead, reinterpret_cast<jlong>(out), nbytes);
+    checkException(env);
+    return read;
+  }
+
+private:
+  JavaVM* vm_;
+  jobject jniIn_;
+  bool closed_ = false;
+};
+
 class JniColumnarBatchIterator : public ColumnarBatchIterator {
  public:
   explicit JniColumnarBatchIterator(
@@ -788,7 +852,8 @@ JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_ShuffleWriterJniWrapper
     jint startPartitionId,
     jint pushBufferMaxSize,
     jobject partitionPusher,
-    jstring partitionWriterTypeJstr) {
+    jstring partitionWriterTypeJstr,
+    jstring shuffleWriterTypeJstr) {
   JNI_METHOD_START
   auto ctx = gluten::getRuntime(env, wrapper);
   auto memoryManager = jniCastOrThrow<MemoryManager>(memoryManagerHandle);
@@ -806,7 +871,8 @@ JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_ShuffleWriterJniWrapper
     shuffleWriterOptions.buffer_size = bufferSize;
   }
 
-  shuffleWriterOptions.compression_type = getCompressionType(env, codecJstr);
+  shuffleWriterOptions.compression_type_str = getCompressionType(env, codecJstr);
+  GLUTEN_ASSIGN_OR_THROW(shuffleWriterOptions.compression_type, arrow::util::Codec::GetCompressionType(shuffleWriterOptions.compression_type_str));
   if (codecJstr != NULL) {
     shuffleWriterOptions.codec_backend = getCodecBackend(env, codecBackendJstr);
     shuffleWriterOptions.compression_mode = getCompressionMode(env, compressionModeJstr);
@@ -834,6 +900,14 @@ JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_ShuffleWriterJniWrapper
   auto partitionWriterTypeC = env->GetStringUTFChars(partitionWriterTypeJstr, JNI_FALSE);
   auto partitionWriterType = std::string(partitionWriterTypeC);
   env->ReleaseStringUTFChars(partitionWriterTypeJstr, partitionWriterTypeC);
+
+  auto shuffleWriterTypeC = env->GetStringUTFChars(shuffleWriterTypeJstr, JNI_FALSE);
+  auto shuffleWriterType = std::string(shuffleWriterTypeC);
+  env->ReleaseStringUTFChars(shuffleWriterTypeJstr, shuffleWriterTypeC);
+
+  if (shuffleWriterType == "sort") {
+    shuffleWriterOptions.shuffle_writer_type = kSortShuffle;
+  }
 
   std::shared_ptr<ShuffleWriter::PartitionWriterCreator> partitionWriterCreator;
 
@@ -927,7 +1001,11 @@ JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_ShuffleWriterJniWrapper
   // The column batch maybe VeloxColumnBatch or ArrowCStructColumnarBatch(FallbackRangeShuffleWriter)
   auto batch = ctx->objectStore()->retrieve<ColumnarBatch>(batchHandle);
   auto numBytes = batch->numBytes();
-  gluten::arrowAssertOkOrThrow(shuffleWriter->split(batch, memLimit), "Native split: shuffle writer split failed");
+  if (shuffleWriter->options().shuffle_writer_type == kHashShuffle) {
+    gluten::arrowAssertOkOrThrow(shuffleWriter->split(batch, memLimit), "Native split: shuffle writer split failed");
+  } else if (shuffleWriter->options().shuffle_writer_type == kSortShuffle) {
+    gluten::arrowAssertOkOrThrow(shuffleWriter->sort(batch, memLimit), "Native split: shuffle writer split failed");
+  }
   return numBytes;
   JNI_METHOD_END(kInvalidResourceHandle)
 }
@@ -1013,7 +1091,8 @@ JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_ShuffleReaderJniWrapper
   ShuffleReaderOptions options = ShuffleReaderOptions::defaults();
   options.ipc_read_options.memory_pool = pool;
   options.ipc_read_options.use_threads = false;
-  options.compression_type = getCompressionType(env, compressionType);
+  options.compression_type_str = getCompressionType(env, compressionType);
+  GLUTEN_ASSIGN_OR_THROW(options.compression_type, arrow::util::Codec::GetCompressionType(options.compression_type_str));
   if (compressionType != nullptr) {
     options.codec_backend = getCodecBackend(env, compressionBackend);
   }
@@ -1034,6 +1113,21 @@ JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_ShuffleReaderJniWrapper
 
   auto reader = ctx->objectStore()->retrieve<ShuffleReader>(shuffleReaderHandle);
   std::shared_ptr<arrow::io::InputStream> in = std::make_shared<JavaInputStreamAdaptor>(env, reader->getPool(), jniIn);
+  auto outItr = reader->readStream(in);
+  return ctx->objectStore()->save(outItr);
+  JNI_METHOD_END(kInvalidResourceHandle)
+}
+
+JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_ShuffleReaderJniWrapper_readVeloxStream( // NOLINT
+    JNIEnv* env,
+    jobject wrapper,
+    jlong shuffleReaderHandle,
+    jobject jniIn) {
+  JNI_METHOD_START
+  auto ctx = gluten::getRuntime(env, wrapper);
+
+  auto reader = ctx->objectStore()->retrieve<ShuffleReader>(shuffleReaderHandle);
+  std::shared_ptr<JavaInputStreamWrapper> in = std::make_shared<JavaInputStreamVeloxWrapper>(env, jniIn);
   auto outItr = reader->readStream(in);
   return ctx->objectStore()->save(outItr);
   JNI_METHOD_END(kInvalidResourceHandle)

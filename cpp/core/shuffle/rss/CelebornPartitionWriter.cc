@@ -43,6 +43,11 @@ class CelebornEvictHandle final : public EvictHandle {
     return arrow::Status::OK();
   }
 
+  arrow::Status evict(uint32_t partitionId, const char* data) override {
+    bytesEvicted_[partitionId] += client_->pushPartitionData(partitionId, data, strlen(data));
+    return arrow::Status::OK();
+  }
+
   arrow::Status finish() override {
     return arrow::Status::OK();
   }
@@ -65,15 +70,20 @@ arrow::Status CelebornPartitionWriter::init() {
 }
 
 arrow::Status CelebornPartitionWriter::stop() {
+  const auto& options = shuffleWriter_->options();
   // push data and collect metrics
-  for (auto pid = 0; pid < shuffleWriter_->numPartitions(); ++pid) {
-    ARROW_ASSIGN_OR_RAISE(auto payload, shuffleWriter_->createPayloadFromBuffer(pid, false));
-    if (payload) {
-      RETURN_NOT_OK(evictHandle_->evict(pid, std::move(payload)));
+    for (auto pid = 0; pid < shuffleWriter_->numPartitions(); ++pid) {
+      if (options.shuffle_writer_type == kHashShuffle) {
+        ARROW_ASSIGN_OR_RAISE(auto payload, shuffleWriter_->createPayloadFromBuffer(pid, false));
+        if (payload) {
+          RETURN_NOT_OK(evictHandle_->evict(pid, std::move(payload)));
+        }
+      } else if (options.shuffle_writer_type == kSortShuffle) {
+        RETURN_NOT_OK(shuffleWriter_-> evictRowVector());
+      }
+      shuffleWriter_->setPartitionLengths(pid, bytesEvicted_[pid]);
+      shuffleWriter_->setTotalBytesWritten(shuffleWriter_->totalBytesWritten() + bytesEvicted_[pid]);
     }
-    shuffleWriter_->setPartitionLengths(pid, bytesEvicted_[pid]);
-    shuffleWriter_->setTotalBytesWritten(shuffleWriter_->totalBytesWritten() + bytesEvicted_[pid]);
-  }
   celebornClient_->stop();
   return arrow::Status::OK();
 }

@@ -39,4 +39,24 @@ arrow::Status gluten::RoundRobinPartitioner::compute(
   return arrow::Status::OK();
 }
 
+arrow::Status gluten::RoundRobinPartitioner::compute(
+    const int32_t* pidArr,
+    const int64_t numRows,
+    const int32_t vectorIndex,
+    std::unordered_map<int32_t, std::vector<int64_t>>& rowVectorIndexMap) {
+
+  for (int32_t i = 0; i < numRows; ++i) {
+    if (auto it = rowVectorIndexMap.find(pidSelection_); it != rowVectorIndexMap.end()) {
+      int64_t combined = (static_cast<int64_t>(vectorIndex) << 32) | (i & 0xFFFFFFFFLL);
+      it->second.push_back(combined);
+    } else {
+      const std::vector<int64_t> values;
+      rowVectorIndexMap[pidSelection_] = values;
+    }
+    pidSelection_ = (pidSelection_ + 1) % numPartitions_;
+  }
+
+  return arrow::Status::OK();
+}
+
 } // namespace gluten

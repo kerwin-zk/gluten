@@ -131,6 +131,8 @@ class VeloxShuffleWriter final : public ShuffleWriter {
 
   arrow::Status split(std::shared_ptr<ColumnarBatch> cb, int64_t memLimit) override;
 
+  arrow::Status sort(std::shared_ptr<ColumnarBatch> cb, int64_t memLimit) override;
+
   arrow::Status stop() override;
 
   arrow::Status evictFixedSize(int64_t size, int64_t* actual) override;
@@ -142,6 +144,8 @@ class VeloxShuffleWriter final : public ShuffleWriter {
   arrow::Status evictPayload(uint32_t partitionId, std::unique_ptr<arrow::ipc::IpcPayload> payload) override;
 
   const uint64_t cachedPayloadSize() const override;
+
+  arrow::Status evictRowVector() override;
 
   int64_t rawPartitionBytes() const {
     return std::accumulate(rawPartitionLengths_.begin(), rawPartitionLengths_.end(), 0LL);
@@ -230,6 +234,10 @@ class VeloxShuffleWriter final : public ShuffleWriter {
   void setSplitState(SplitState state);
 
   arrow::Status doSplit(const facebook::velox::RowVector& rv, int64_t memLimit);
+
+  arrow::Status handleRowVector(const std::vector<int64_t>& rowVectorIndex, int32_t partitionID, std::ostringstream* output);
+
+  arrow::Status doSort(facebook::velox::RowVectorPtr rv, int32_t index, int64_t memLimit);
 
   bool beyondThreshold(uint32_t partitionId, uint64_t newSize);
 
@@ -343,6 +351,10 @@ class VeloxShuffleWriter final : public ShuffleWriter {
   // store velox column types
   std::vector<std::shared_ptr<const facebook::velox::Type>> veloxColumnTypes_;
 
+  std::optional<facebook::velox::TypePtr> rowType_;
+
+  facebook::velox::serializer::presto::PrestoVectorSerde::PrestoOptions serdeOptions_;
+
   // Row ID -> Partition ID
   // subscript: Row ID
   // value: Partition ID
@@ -405,6 +417,12 @@ class VeloxShuffleWriter final : public ShuffleWriter {
   std::vector<std::unique_ptr<facebook::velox::StreamArena>> arenas_;
 
   facebook::velox::serializer::presto::PrestoVectorSerde serde_;
+
+  std::vector<facebook::velox::RowVectorPtr> batches_;
+
+  std::unordered_map<int32_t, std::vector<int64_t>> rowVectorIndexMap_;
+
+  uint32_t currentInputColumnBytes_ = 0;
 
   // stat
   enum CpuWallTimingType {

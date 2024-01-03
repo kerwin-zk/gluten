@@ -85,7 +85,8 @@ public class ShuffleWriterJniWrapper implements RuntimeAware {
         startPartitionId,
         0,
         null,
-        "local");
+        "local",
+        "hash");
   }
 
   /**
@@ -109,6 +110,7 @@ public class ShuffleWriterJniWrapper implements RuntimeAware {
       long taskAttemptId,
       int startPartitionId,
       String partitionWriterType,
+      String shuffleWriterType,
       double reallocThreshold) {
     return nativeMake(
         part.getShortName(),
@@ -129,7 +131,8 @@ public class ShuffleWriterJniWrapper implements RuntimeAware {
         startPartitionId,
         pushBufferMaxSize,
         pusher,
-        partitionWriterType);
+        partitionWriterType,
+        shuffleWriterType);
   }
 
   public native long nativeMake(
@@ -151,7 +154,8 @@ public class ShuffleWriterJniWrapper implements RuntimeAware {
       int startPartitionId,
       int pushBufferMaxSize,
       Object pusher,
-      String partitionWriterType);
+      String partitionWriterType,
+      String shuffleWriterType);
 
   /**
    * Evict partition data.

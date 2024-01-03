@@ -16,6 +16,9 @@
  */
 
 #include "ShuffleReader.h"
+
+#include <jni/JniCommon.h>
+
 #include "arrow/ipc/reader.h"
 #include "arrow/record_batch.h"
 #include "utils/macros.h"

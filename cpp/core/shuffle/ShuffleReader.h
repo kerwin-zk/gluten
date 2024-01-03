@@ -21,6 +21,7 @@
 
 #include <arrow/ipc/message.h>
 #include <arrow/ipc/options.h>
+#include <jni/JniCommon.h>
 
 #include "Options.h"
 #include "compute/ResultIterator.h"
@@ -36,6 +37,8 @@ class ShuffleReader {
 
   // FIXME iterator should be unique_ptr or un-copyable singleton
   virtual std::shared_ptr<ResultIterator> readStream(std::shared_ptr<arrow::io::InputStream> in);
+
+  virtual std::shared_ptr<ResultIterator> readStream(std::shared_ptr<JavaInputStreamWrapper> in);
 
   arrow::Status close();
 

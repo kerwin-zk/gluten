@@ -39,4 +39,25 @@ arrow::Status gluten::FallbackRangePartitioner::compute(
   return arrow::Status::OK();
 }
 
+arrow::Status gluten::FallbackRangePartitioner::compute(
+    const int32_t* pidArr,
+    const int64_t numRows,
+    const int32_t vectorIndex,
+    std::unordered_map<int32_t, std::vector<int64_t>>& rowVectorIndexMap) {
+  for (auto i = 0; i < numRows; ++i) {
+    auto pid = pidArr[i];
+    if (auto it = rowVectorIndexMap.find(pid); it != rowVectorIndexMap.end()) {
+      int64_t combined = (static_cast<int64_t>(vectorIndex) << 32) | (i & 0xFFFFFFFFLL);
+      it->second.push_back(combined);
+    } else {
+      const std::vector<int64_t> values;
+      rowVectorIndexMap[pid] = values;
+    }
+    if (pid >= numPartitions_) {
+      return arrow::Status::Invalid(
+          "Partition id ", std::to_string(pid), " is equal or greater than ", std::to_string(numPartitions_));
+    }
+  }
+  return arrow::Status::OK();
+}
 } // namespace gluten

@@ -132,6 +132,8 @@ class VeloxShuffleWriter final : public ShuffleWriter {
 
   arrow::Status split(std::shared_ptr<ColumnarBatch> cb, int64_t memLimit) override;
 
+  arrow::Status sort(std::shared_ptr<ColumnarBatch> cb, int64_t memLimit) override;
+
   arrow::Status stop() override;
 
   arrow::Status reclaimFixedSize(int64_t size, int64_t* actual) override;
@@ -139,6 +141,14 @@ class VeloxShuffleWriter final : public ShuffleWriter {
   const uint64_t cachedPayloadSize() const override;
 
   arrow::Status evictPartitionBuffers(uint32_t partitionId, bool reuseBuffers);
+
+  arrow::Status evictRowVector(uint32_t partitionId) override;
+
+  arrow::Status evictBatch(
+      uint32_t partitionId,
+      std::ostringstream* output,
+      facebook::velox::OStreamOutputStream* out,
+      facebook::velox::RowTypePtr* rowTypePtr);
 
   int64_t rawPartitionBytes() const;
 
@@ -221,6 +231,8 @@ class VeloxShuffleWriter final : public ShuffleWriter {
   void setSplitState(SplitState state);
 
   arrow::Status doSplit(const facebook::velox::RowVector& rv, int64_t memLimit);
+
+  arrow::Status doSort(facebook::velox::RowVectorPtr rv, int64_t memLimit);
 
   bool beyondThreshold(uint32_t partitionId, uint16_t newSize);
 
@@ -352,6 +364,12 @@ class VeloxShuffleWriter final : public ShuffleWriter {
   // Most of the loops can loop on this array to avoid visiting unused partition id.
   std::vector<uint32_t> partitionUsed_;
 
+  std::optional<facebook::velox::TypePtr> rowType_;
+
+  facebook::velox::serializer::presto::PrestoVectorSerde::PrestoOptions serdeOptions_;
+
+  std::unique_ptr<facebook::velox::VectorStreamGroup> batch_;
+
   // Row ID -> Partition ID
   // subscript: The index of row in the current input RowVector
   // value: Partition ID
@@ -362,7 +380,7 @@ class VeloxShuffleWriter final : public ShuffleWriter {
   // subscript: Partition ID
   // value: How many rows does this partition have in the current input RowVector
   // Updated for each input RowVector.
-  std::vector<uint16_t> partition2RowCount_;
+  std::vector<uint32_t> partition2RowCount_;
 
   // Note: partition2RowOffsetBase_ and rowOffset2RowId_ are the optimization of flattening the 2-dimensional vector
   // into single dimension.
@@ -408,7 +426,16 @@ class VeloxShuffleWriter final : public ShuffleWriter {
 
   std::shared_ptr<facebook::velox::memory::MemoryPool> veloxPool_;
   std::vector<std::unique_ptr<facebook::velox::StreamArena>> arenas_;
-  facebook::velox::serializer::presto::PrestoVectorSerde serde_;
+  std::unique_ptr<facebook::velox::serializer::presto::PrestoVectorSerde> serde_ =
+      std::make_unique<facebook::velox::serializer::presto::PrestoVectorSerde>();
+
+  std::vector<facebook::velox::RowVectorPtr> batches_;
+
+  std::unordered_map<int32_t, std::vector<int64_t>> rowVectorIndexMap_;
+
+  std::unordered_map<int32_t, std::vector<int64_t>> rowVectorPartitionMap_;
+
+  uint32_t currentInputColumnBytes_ = 0;
 
   // stat
   enum CpuWallTimingType {

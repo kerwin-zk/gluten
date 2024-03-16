@@ -1136,6 +1136,7 @@ JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_ShuffleReaderJniWrapper
   // TODO: Add coalesce option and maximum coalesced size.
 
   if (jStringToCString(env, shuffleWriterType) == "sort") {
+    std::cout << "jStringToCString(env, shuffleWriterType) == sort" << std::endl;
     options.shuffleWriterType = kSortShuffle;
   }
   std::shared_ptr<arrow::Schema> schema =
@@ -1157,10 +1158,12 @@ JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_ShuffleReaderJniWrapper
   std::shared_ptr<ResultIterator> outItr;
   const auto shuffleWriterType = reader->getOptions().shuffleWriterType;
   if (shuffleWriterType == kHashShuffle) {
+    std::cout << "shuffleWriterType == kHashShuffle" << std::endl;
     std::shared_ptr<arrow::io::InputStream> in =
         std::make_shared<JavaInputStreamAdaptor>(env, reader->getPool(), jniIn);
     outItr = reader->readStream(in);
   } else if (shuffleWriterType == kSortShuffle) {
+      std::cout << "shuffleWriterType == kSortShuffle" << std::endl;
     std::shared_ptr<JavaInputStreamWrapper> in = std::make_shared<JavaInputStreamVeloxWrapper>(env, jniIn);
     outItr = reader->readStream(in);
   } else {

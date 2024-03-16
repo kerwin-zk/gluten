@@ -485,4 +485,31 @@ void VeloxColumnarBatchDeserializerFactory::initFromSchema() {
     }
   }
 }
+
+VeloxInputStream::VeloxInputStream(std::shared_ptr<JavaInputStreamWrapper> input, facebook::velox::BufferPtr buffer)
+      : input_(std::move(input)),
+        buffer_(std::move(buffer)) {
+  next(true);
+}
+
+bool VeloxInputStream::hasNext() {
+  if (offset_ == 0) {
+    return false;
+  }
+  if (ranges()[0].position >= ranges()[0].size) {
+    next(true);
+    return offset_ != 0;
+  }
+  return true;
+}
+
+void VeloxInputStream::next(bool throwIfPastEnd) {
+  const uint32_t readBytes = buffer_->capacity();
+  offset_ = input_->read(readBytes, buffer_->asMutable<char>());
+  if (offset_ > 0) {
+    int32_t realBytes = offset_;
+    VELOX_CHECK_LT(0, realBytes, "Reading past end of spill file");
+    setRange({buffer_->asMutable<uint8_t>(), realBytes, 0});
+  }
+}
 } // namespace gluten

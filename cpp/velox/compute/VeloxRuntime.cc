@@ -206,7 +206,9 @@ std::shared_ptr<ShuffleReader> VeloxRuntime::createShuffleReader(
   auto ctxVeloxPool = getLeafVeloxPool(memoryManager);
   auto deserializerFactory = std::make_unique<gluten::VeloxColumnarBatchDeserializerFactory>(
       schema, std::move(codec), options.compressionTypeStr, rowType, options.batchSize, pool, ctxVeloxPool);
-  return std::make_shared<VeloxShuffleReader>(std::move(deserializerFactory));
+  auto reader =  std::make_shared<VeloxShuffleReader>(std::move(deserializerFactory));
+  reader->getOptions() = options;
+  return reader;
 }
 
 std::unique_ptr<ColumnarBatchSerializer> VeloxRuntime::createColumnarBatchSerializer(

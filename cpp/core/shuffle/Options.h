@@ -40,7 +40,7 @@ enum PartitionWriterType { kLocal, kCeleborn };
 struct ShuffleReaderOptions {
   arrow::Compression::type compressionType = arrow::Compression::type::LZ4_FRAME;
   std::string compressionTypeStr = "lz4";
-  ShuffleWriterType shuffleWriterType = kHashShuffle;
+  ShuffleWriterType shuffleWriterType = kSortShuffle;
   CodecBackend codecBackend = CodecBackend::NONE;
   int32_t batchSize = kDefaultBatchSize;
 };
@@ -53,7 +53,7 @@ struct ShuffleWriterOptions {
   int64_t taskAttemptId = -1;
   int32_t startPartitionId = 0;
   int64_t threadId = -1;
-  ShuffleWriterType shuffleWriterType = kHashShuffle;
+  ShuffleWriterType shuffleWriterType = kSortShuffle;
 };
 
 struct PartitionWriterOptions {

@@ -382,7 +382,7 @@ class VeloxShuffleWriter final : public ShuffleWriter {
   // subscript: Partition ID
   // value: How many rows does this partition have in the current input RowVector
   // Updated for each input RowVector.
-  std::vector<uint16_t> partition2RowCount_;
+  std::vector<uint32_t> partition2RowCount_;
 
   // Note: partition2RowOffsetBase_ and rowOffset2RowId_ are the optimization of flattening the 2-dimensional vector
   // into single dimension.

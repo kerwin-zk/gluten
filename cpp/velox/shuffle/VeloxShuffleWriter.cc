@@ -224,15 +224,25 @@ arrow::Status VeloxShuffleWriter::init() {
       partitioner_, Partitioner::make(options_.partitioning, numPartitions_, options_.startPartitionId));
   DLOG(INFO) << "Create partitioning type: " << std::to_string(options_.partitioning);
 
-  // pre-allocated buffer size for each partition, unit is row count
-  // when partitioner is SinglePart, partial variables don`t need init
-  if (options_.partitioning != Partitioning::kSingle) {
+  if (options_.shuffleWriterType == kHashShuffle) {
+    // pre-allocated buffer size for each partition, unit is row count
+    // when partitioner is SinglePart, partial variables don`t need init
+    if (options_.partitioning != Partitioning::kSingle) {
+      partition2RowCount_.resize(numPartitions_);
+      partitionBufferSize_.resize(numPartitions_);
+      partition2RowOffsetBase_.resize(numPartitions_ + 1);
+    }
+
+    partitionBufferBase_.resize(numPartitions_);
+  } else if (options_.shuffleWriterType == kSortShuffle) {
     partition2RowCount_.resize(numPartitions_);
     partitionBufferSize_.resize(numPartitions_);
     partition2RowOffsetBase_.resize(numPartitions_ + 1);
+    rowVectorIndexMap_.reserve(numPartitions_);
+    for (auto pid = 0; pid < numPartitions_; ++pid) {
+      rowVectorIndexMap_[pid].reserve(options_.bufferSize);
+    }
   }
-
-  partitionBufferBase_.resize(numPartitions_);
 
   return arrow::Status::OK();
 }
@@ -273,7 +283,7 @@ void VeloxShuffleWriter::setPartitionBufferSize(uint16_t newSize) {
 arrow::Result<std::shared_ptr<arrow::Buffer>> VeloxShuffleWriter::generateComplexTypeBuffers(
     facebook::velox::RowVectorPtr vector) {
   auto arena = std::make_unique<facebook::velox::StreamArena>(veloxPool_.get());
-  auto serializer = serde_.createIterativeSerializer(
+  auto serializer = serde_.get()->createIterativeSerializer(
       asRowType(vector->type()), vector->size(), arena.get(), /* serdeOptions */ nullptr);
   const facebook::velox::IndexRange allRows{0, vector->size()};
   serializer->append(vector, folly::Range(&allRows, 1));
@@ -361,10 +371,186 @@ arrow::Status VeloxShuffleWriter::split(std::shared_ptr<ColumnarBatch> cb, int64
   return arrow::Status::OK();
 }
 
+arrow::Status VeloxShuffleWriter::doSort(facebook::velox::RowVectorPtr rv, int64_t memLimit) {
+  currentInputColumnBytes_ += rv->estimateFlatSize();
+  batches_.push_back(rv);
+  if (currentInputColumnBytes_ > memLimit) {
+    RETURN_NOT_OK(createOutputRowVector());
+    for (auto pid = 0; pid < numPartitions(); ++pid) {
+      RETURN_NOT_OK(evictRowVector(pid));
+    }
+    outputRowVectors_.clear();
+    batches_.clear();
+    currentInputColumnBytes_ = 0;
+  }
+  return arrow::Status::OK();
+}
+
+arrow::Status VeloxShuffleWriter::sort(std::shared_ptr<ColumnarBatch> cb, int64_t memLimit) {
+  if (options_.partitioning == Partitioning::kSingle) {
+    auto veloxColumnBatch = VeloxColumnarBatch::from(veloxPool_.get(), cb);
+    VELOX_CHECK_NOT_NULL(veloxColumnBatch);
+    auto rv = veloxColumnBatch->getFlattenedRowVector();
+    ;
+    RETURN_NOT_OK(initFromRowVector(*rv.get()));
+    RETURN_NOT_OK(doSort(rv, options_.pushMemoryThreshold));
+  } else if (options_.partitioning == Partitioning::kRange) {
+    auto compositeBatch = std::dynamic_pointer_cast<CompositeColumnarBatch>(cb);
+    VELOX_CHECK_NOT_NULL(compositeBatch);
+    auto batches = compositeBatch->getBatches();
+    VELOX_CHECK_EQ(batches.size(), 2);
+    auto pidBatch = VeloxColumnarBatch::from(veloxPool_.get(), batches[0]);
+    auto pidArr = getFirstColumn(*(pidBatch->getRowVector()));
+    START_TIMING(cpuWallTimingList_[CpuWallTimingCompute]);
+    RETURN_NOT_OK(partitioner_->compute(pidArr, pidBatch->numRows(), batches_.size(), rowVectorIndexMap_));
+    END_TIMING();
+    auto rvBatch = VeloxColumnarBatch::from(veloxPool_.get(), batches[1]);
+    auto rv = rvBatch->getFlattenedRowVector();
+    RETURN_NOT_OK(initFromRowVector(*rv.get()));
+    RETURN_NOT_OK(doSort(rv, options_.pushMemoryThreshold));
+  } else {
+    auto veloxColumnBatch = VeloxColumnarBatch::from(veloxPool_.get(), cb);
+    VELOX_CHECK_NOT_NULL(veloxColumnBatch);
+    facebook::velox::RowVectorPtr rv;
+    START_TIMING(cpuWallTimingList_[CpuWallTimingFlattenRV]);
+    rv = veloxColumnBatch->getFlattenedRowVector();
+    ;
+    END_TIMING();
+    if (partitioner_->hasPid()) {
+      auto pidArr = getFirstColumn(*rv);
+      START_TIMING(cpuWallTimingList_[CpuWallTimingCompute]);
+      RETURN_NOT_OK(partitioner_->compute(pidArr, rv->size(), batches_.size(), rowVectorIndexMap_));
+      END_TIMING();
+      auto strippedRv = getStrippedRowVector(*rv);
+      RETURN_NOT_OK(initFromRowVector(*strippedRv));
+      RETURN_NOT_OK(doSort(strippedRv, options_.pushMemoryThreshold));
+    } else {
+      RETURN_NOT_OK(initFromRowVector(*rv));
+      START_TIMING(cpuWallTimingList_[CpuWallTimingCompute]);
+      RETURN_NOT_OK(partitioner_->compute(nullptr, rv->size(), batches_.size(), rowVectorIndexMap_));
+      END_TIMING();
+      RETURN_NOT_OK(doSort(rv, options_.pushMemoryThreshold));
+    }
+  }
+  return arrow::Status::OK();
+}
+
+arrow::Status VeloxShuffleWriter::evictBatch(
+    uint32_t partitionId,
+    std::ostringstream* output,
+    facebook::velox::OStreamOutputStream* out,
+    facebook::velox::RowTypePtr* rowTypePtr) {
+  batch_->flush(out);
+  std::string outputStr = output->str();
+  RETURN_NOT_OK(partitionWriter_->evict(partitionId, outputStr.c_str(), outputStr.size()));
+  batch_.reset();
+  output->clear();
+  output->str("");
+  batch_ = std::make_unique<facebook::velox::VectorStreamGroup>(veloxPool_.get());
+  batch_->createStreamTree(*rowTypePtr, options_.bufferSize, &serdeOptions_);
+  return arrow::Status::OK();
+}
+
+arrow::Status VeloxShuffleWriter::evictRowVector(uint32_t partitionId) {
+  int32_t rowNum = 0;
+  const int32_t maxBatchNum = options_.bufferSize;
+  auto rowTypePtr = std::static_pointer_cast<const facebook::velox::RowType>(rowType_.value());
+  std::ostringstream output;
+  facebook::velox::OStreamOutputStream out(&output);
+
+  if (options_.partitioning != Partitioning::kSingle) {
+    if (auto it = outputRowVectors_.find(partitionId); it != outputRowVectors_.end()) {
+      const int32_t outputSize = it->second->size();
+      int32_t num = outputSize / maxBatchNum;
+      int32_t remain = outputSize % maxBatchNum;
+      std::vector<std::vector<facebook::velox::IndexRange>> vectorIndex;
+      if (remain > 0) {
+        vectorIndex.resize(num + 1);
+      } else {
+        vectorIndex.resize(num);
+      }
+
+      for (int i = 0; i < num; i++) {
+        auto& vec = vectorIndex[i];
+        vec.push_back(facebook::velox::IndexRange{i * maxBatchNum, maxBatchNum});
+      }
+      if (remain > 0) {
+        auto& vec = vectorIndex[num];
+        vec.push_back(facebook::velox::IndexRange{num * maxBatchNum, remain});
+      }
+
+      for (const auto& value : vectorIndex) {
+        batch_->append(outputRowVectors_[partitionId], value);
+        RETURN_NOT_OK(evictBatch(partitionId, &output, &out, &rowTypePtr));
+      }
+    }
+  } else {
+    for (facebook::velox::RowVectorPtr rowVectorPtr : batches_) {
+      rowNum += rowVectorPtr->size();
+      batch_->append(rowVectorPtr);
+      if (rowNum >= maxBatchNum) {
+        RETURN_NOT_OK(evictBatch(partitionId, &output, &out, &rowTypePtr));
+        rowNum = 0;
+      }
+    }
+  }
+  if (rowNum > 0) {
+    RETURN_NOT_OK(evictBatch(partitionId, &output, &out, &rowTypePtr));
+  }
+  return arrow::Status::OK();
+}
+
+arrow::Status VeloxShuffleWriter::createOutputRowVector() {
+  if (options_.partitioning == Partitioning::kSingle) {
+    return arrow::Status::OK();
+  }
+  auto rowTypePtr = std::static_pointer_cast<const facebook::velox::RowType>(rowType_.value());
+
+  for (const auto& it : rowVectorIndexMap_) {
+    int32_t partitionId = it.first;
+    const std::vector<int64_t>& rowVectorIndex = it.second;
+    outputRowVectors_[partitionId] = std::dynamic_pointer_cast<facebook::velox::RowVector>(
+        facebook::velox::BaseVector::create(rowTypePtr, rowVectorIndex.size(), veloxPool_.get()));
+  }
+
+  std::vector<folly::Future<folly::Unit>> futures;
+
+  for (const auto& it : rowVectorIndexMap_) {
+    int32_t partitionId = it.first;
+    auto rowVectorIndex = it.second;
+    std::unordered_map<int32_t, std::vector<facebook::velox::BaseVector::CopyRange>> vectorIndexMap;
+    for (const auto& value : rowVectorIndex) {
+      const int32_t vectorIndex = static_cast<int32_t>(value >> 32);
+      const int32_t rowIndex = static_cast<int32_t>(value & 0xFFFFFFFFLL);
+      auto& vec = vectorIndexMap[vectorIndex];
+      int32_t rowCount = partition2RowCount_[partitionId];
+      vec.push_back({.sourceIndex = rowIndex, .targetIndex = rowCount, .count = 1});
+      partition2RowCount_[partitionId]++;
+    }
+
+    for (const auto& value : vectorIndexMap) {
+      const int32_t vectorIndex = value.first;
+      outputRowVectors_[partitionId]->copyRanges(batches_[vectorIndex].get(), value.second);
+    }
+  }
+  rowVectorIndexMap_.clear();
+  return arrow::Status::OK();
+}
+
 arrow::Status VeloxShuffleWriter::stop() {
   if (options_.partitioning != Partitioning::kSingle) {
-    for (auto pid = 0; pid < numPartitions_; ++pid) {
-      RETURN_NOT_OK(evictPartitionBuffers(pid, false));
+    if (options_.shuffleWriterType == kSortShuffle) {
+      RETURN_NOT_OK(createOutputRowVector());
+      for (auto pid = 0; pid < numPartitions(); ++pid) {
+        RETURN_NOT_OK(evictRowVector(pid));
+      }
+      outputRowVectors_.clear();
+      batches_.clear();
+      currentInputColumnBytes_ = 0;
+    } else {
+      for (auto pid = 0; pid < numPartitions_; ++pid) {
+        RETURN_NOT_OK(evictPartitionBuffers(pid, false));
+      }
     }
   }
   {
@@ -732,7 +918,7 @@ arrow::Status VeloxShuffleWriter::splitComplexType(const facebook::velox::RowVec
       if (arenas_[partition] == nullptr) {
         arenas_[partition] = std::make_unique<facebook::velox::StreamArena>(veloxPool_.get());
       }
-      complexTypeData_[partition] = serde_.createIterativeSerializer(
+      complexTypeData_[partition] = serde_.get()->createIterativeSerializer(
           complexWriteType_, partition2RowCount_[partition], arenas_[partition].get(), /* serdeOptions */ nullptr);
     }
     rowIndexs[partition].emplace_back(facebook::velox::IndexRange{row, 1});
@@ -821,10 +1007,19 @@ arrow::Status VeloxShuffleWriter::initColumnTypes(const facebook::velox::RowVect
 }
 
 arrow::Status VeloxShuffleWriter::initFromRowVector(const facebook::velox::RowVector& rv) {
-  if (veloxColumnTypes_.empty()) {
+  if (options_.shuffleWriterType == kHashShuffle && veloxColumnTypes_.empty()) {
     RETURN_NOT_OK(initColumnTypes(rv));
     RETURN_NOT_OK(initPartitions());
     calculateSimpleColumnBytes();
+  } else if (options_.shuffleWriterType == kSortShuffle && !rowType_.has_value()) {
+    rowType_ = rv.type();
+    serdeOptions_ = {
+        false, facebook::velox::common::stringToCompressionKind(partitionWriter_->options().compressionTypeStr)};
+    batch_ = std::make_unique<facebook::velox::VectorStreamGroup>(veloxPool_.get());
+    batch_->createStreamTree(
+        std::static_pointer_cast<const facebook::velox::RowType>(rowType_.value()),
+        options_.bufferSize,
+        &serdeOptions_);
   }
   return arrow::Status::OK();
 }
@@ -1132,20 +1327,33 @@ arrow::Status VeloxShuffleWriter::reclaimFixedSize(int64_t size, int64_t* actual
   }
   EvictGuard evictGuard{evictState_};
 
-  int64_t reclaimed = 0;
-  if (reclaimed < size) {
-    ARROW_ASSIGN_OR_RAISE(auto cached, evictCachedPayload(size - reclaimed));
-    reclaimed += cached;
+  if (options_.shuffleWriterType == kHashShuffle) {
+    int64_t reclaimed = 0;
+    if (reclaimed < size) {
+      ARROW_ASSIGN_OR_RAISE(auto cached, evictCachedPayload(size - reclaimed));
+      reclaimed += cached;
+    }
+    if (reclaimed < size && shrinkPartitionBuffersAfterSpill()) {
+      ARROW_ASSIGN_OR_RAISE(auto shrunken, shrinkPartitionBuffersMinSize(size - reclaimed));
+      reclaimed += shrunken;
+    }
+    if (reclaimed < size && evictPartitionBuffersAfterSpill()) {
+      ARROW_ASSIGN_OR_RAISE(auto evicted, evictPartitionBuffersMinSize(size - reclaimed));
+      reclaimed += evicted;
+    }
+    *actual = reclaimed;
+  } else if (options_.shuffleWriterType == kSortShuffle) {
+    if (splitState_ == SplitState::kInit) {
+      RETURN_NOT_OK(createOutputRowVector());
+      for (auto pid = 0; pid < numPartitions(); ++pid) {
+        RETURN_NOT_OK(evictRowVector(pid));
+      }
+      outputRowVectors_.clear();
+      batches_.clear();
+      *actual = currentInputColumnBytes_;
+      currentInputColumnBytes_ = 0;
+    }
   }
-  if (reclaimed < size && shrinkPartitionBuffersAfterSpill()) {
-    ARROW_ASSIGN_OR_RAISE(auto shrunken, shrinkPartitionBuffersMinSize(size - reclaimed));
-    reclaimed += shrunken;
-  }
-  if (reclaimed < size && evictPartitionBuffersAfterSpill()) {
-    ARROW_ASSIGN_OR_RAISE(auto evicted, evictPartitionBuffersMinSize(size - reclaimed));
-    reclaimed += evicted;
-  }
-  *actual = reclaimed;
   return arrow::Status::OK();
 }
 

@@ -75,4 +75,11 @@ arrow::Status CelebornPartitionWriter::evict(
       partitionId, reinterpret_cast<char*>(const_cast<uint8_t*>(buffer->data())), buffer->size());
   return arrow::Status::OK();
 }
+
+arrow::Status CelebornPartitionWriter::evict(uint32_t partitionId, int64_t rawSize, const char* data, int64_t length) {
+  rawPartitionLengths_[partitionId] += rawSize;
+  ScopedTimer timer(&spillTime_);
+  bytesEvicted_[partitionId] += celebornClient_->pushPartitionData(partitionId, data, length);
+  return arrow::Status::OK();
+}
 } // namespace gluten

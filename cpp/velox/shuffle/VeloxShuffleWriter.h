@@ -316,6 +316,10 @@ class VeloxShuffleWriter final : public ShuffleWriter {
   bool hasComplexType_ = false;
   std::vector<bool> isValidityBuffer_;
 
+  uint64_t batchCount_ = 0;
+
+  uint64_t samePartitionCount_ = 0;
+
   // Store arrow column types. Calculated once.
   std::vector<std::shared_ptr<arrow::DataType>> arrowColumnTypes_;
 

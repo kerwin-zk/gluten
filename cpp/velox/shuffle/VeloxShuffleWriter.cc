@@ -294,6 +294,7 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> VeloxShuffleWriter::generateComple
 }
 
 arrow::Status VeloxShuffleWriter::split(std::shared_ptr<ColumnarBatch> cb, int64_t memLimit) {
+  batchCount_ += 1;
   if (options_.partitioning == Partitioning::kSingle) {
     auto veloxColumnBatch = VeloxColumnarBatch::from(veloxPool_.get(), cb);
     VELOX_CHECK_NOT_NULL(veloxColumnBatch);
@@ -351,6 +352,10 @@ arrow::Status VeloxShuffleWriter::split(std::shared_ptr<ColumnarBatch> cb, int64
       RETURN_NOT_OK(initFromRowVector(*strippedRv));
       auto& finalRv = *strippedRv;
       if (partitioner_->isSamePid()) {
+        samePartitionCount_ += 1;
+        if (batchCount_ % 1000 == 0) {
+          std::cout << "samePartitionCount:" << samePartitionCount_ << std::endl;
+        }
         std::vector<std::shared_ptr<arrow::Buffer>> buffers;
         std::vector<facebook::velox::VectorPtr> complexChildren;
         for (auto& child : finalRv.children()) {

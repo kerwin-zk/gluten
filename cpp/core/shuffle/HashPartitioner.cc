@@ -17,6 +17,8 @@
 
 #include "shuffle/HashPartitioner.h"
 
+#include <xsimd/arch/xsimd_constants.hpp>
+
 namespace gluten {
 
 arrow::Status gluten::HashPartitioner::compute(
@@ -24,6 +26,9 @@ arrow::Status gluten::HashPartitioner::compute(
     const int64_t numRows,
     std::vector<uint32_t>& row2partition,
     std::vector<uint16_t>& partition2RowCount) {
+  currentPid_ = -1;
+  isSamePid_ = true;
+
   row2partition.resize(numRows);
   std::fill(std::begin(partition2RowCount), std::end(partition2RowCount), 0);
 
@@ -43,6 +48,16 @@ arrow::Status gluten::HashPartitioner::compute(
     }
 #endif
     row2partition[i] = pid;
+
+    if (isSamePid_) {
+      if (currentPid_ == -1) {
+        currentPid_ = pid;
+      } else {
+        if (currentPid_ != pid) {
+          isSamePid_ = false;
+        }
+      }
+    }
   }
 
   for (auto& pid : row2partition) {

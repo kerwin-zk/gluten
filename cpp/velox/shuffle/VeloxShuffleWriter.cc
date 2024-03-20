@@ -349,7 +349,33 @@ arrow::Status VeloxShuffleWriter::split(std::shared_ptr<ColumnarBatch> cb, int64
       END_TIMING();
       auto strippedRv = getStrippedRowVector(*rv);
       RETURN_NOT_OK(initFromRowVector(*strippedRv));
-      RETURN_NOT_OK(doSplit(*strippedRv, memLimit));
+      auto& finalRv = *strippedRv;
+      if (partitioner_->isSamePid()) {
+        std::vector<std::shared_ptr<arrow::Buffer>> buffers;
+        std::vector<facebook::velox::VectorPtr> complexChildren;
+        for (auto& child : finalRv.children()) {
+          if (child->encoding() == facebook::velox::VectorEncoding::Simple::FLAT) {
+            auto status = VELOX_DYNAMIC_SCALAR_TYPE_DISPATCH_ALL(
+                collectFlatVectorBuffer, child->typeKind(), child.get(), buffers, partitionBufferPool_.get());
+            RETURN_NOT_OK(status);
+          } else {
+            complexChildren.emplace_back(child);
+          }
+        }
+        if (complexChildren.size() > 0) {
+          auto rowVector = std::make_shared<facebook::velox::RowVector>(
+              veloxPool_.get(),
+              complexWriteType_,
+              facebook::velox::BufferPtr(nullptr),
+              finalRv.size(),
+              std::move(complexChildren));
+          buffers.emplace_back();
+          ARROW_ASSIGN_OR_RAISE(buffers.back(), generateComplexTypeBuffers(rowVector));
+        }
+        RETURN_NOT_OK(evictBuffers(partitioner_->currentPid(), finalRv.size(), std::move(buffers), false));
+      } else {
+        RETURN_NOT_OK(doSplit(*strippedRv, memLimit));
+      }
     } else {
       RETURN_NOT_OK(initFromRowVector(*rv));
       START_TIMING(cpuWallTimingList_[CpuWallTimingCompute]);

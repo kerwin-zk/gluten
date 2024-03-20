@@ -34,6 +34,14 @@ class Partitioner {
     return hasPid_;
   }
 
+  bool isSamePid() const {
+    return isSamePid_;
+  }
+
+  int32_t currentPid() const {
+    return currentPid_;
+  }
+
   virtual arrow::Status compute(
       const int32_t* pidArr,
       const int64_t numRows,
@@ -48,6 +56,11 @@ class Partitioner {
   virtual ~Partitioner() = default;
 
   int32_t numPartitions_;
+
+  int32_t currentPid_;
+
+  bool isSamePid_;
+
   bool hasPid_;
 };
 

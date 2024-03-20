@@ -55,8 +55,8 @@ int64_t ShuffleReader::getIpcTime() const {
   return ipcTime_;
 }
 
-ShuffleReaderOptions ShuffleReader::getOptions() const {
-  return options_;
+ShuffleWriterType ShuffleReader::getShuffleWriterType() const {
+  return factory_->getShuffleWriterType();
 }
 
 int64_t ShuffleReader::getDeserializeTime() const {

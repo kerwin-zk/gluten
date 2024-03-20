@@ -1156,7 +1156,7 @@ JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_ShuffleReaderJniWrapper
 
   auto reader = ctx->objectStore()->retrieve<ShuffleReader>(shuffleReaderHandle);
   std::shared_ptr<ResultIterator> outItr;
-  const auto shuffleWriterType = reader->getOptions().shuffleWriterType;
+  const auto shuffleWriterType = reader->getShuffleWriterType();
   if (shuffleWriterType == kHashShuffle) {
     std::cout << "shuffleWriterType == kHashShuffle" << std::endl;
     std::shared_ptr<arrow::io::InputStream> in =

@@ -372,14 +372,16 @@ VeloxColumnarBatchDeserializerFactory::VeloxColumnarBatchDeserializerFactory(
     const RowTypePtr& rowType,
     int32_t batchSize,
     arrow::MemoryPool* memoryPool,
-    std::shared_ptr<facebook::velox::memory::MemoryPool> veloxPool)
+    std::shared_ptr<facebook::velox::memory::MemoryPool> veloxPool,
+    ShuffleWriterType shuffleWriterType)
     : schema_(schema),
       codec_(codec),
       compressionTypeStr_(compressionTypeStr),
       rowType_(rowType),
       batchSize_(batchSize),
       memoryPool_(memoryPool),
-      veloxPool_(veloxPool) {
+      veloxPool_(veloxPool),
+      shuffleWriterType_(shuffleWriterType) {
   initFromSchema();
 }
 
@@ -448,6 +450,10 @@ arrow::MemoryPool* VeloxColumnarBatchDeserializerFactory::getPool() {
   return memoryPool_;
 }
 
+ShuffleWriterType VeloxColumnarBatchDeserializerFactory::getShuffleWriterType() {
+  return shuffleWriterType_;
+}
+
 int64_t VeloxColumnarBatchDeserializerFactory::getDecompressTime() {
   return decompressTime_;
 }
@@ -487,8 +493,7 @@ void VeloxColumnarBatchDeserializerFactory::initFromSchema() {
 }
 
 VeloxInputStream::VeloxInputStream(std::shared_ptr<JavaInputStreamWrapper> input, facebook::velox::BufferPtr buffer)
-      : input_(std::move(input)),
-        buffer_(std::move(buffer)) {
+    : input_(std::move(input)), buffer_(std::move(buffer)) {
   next(true);
 }
 

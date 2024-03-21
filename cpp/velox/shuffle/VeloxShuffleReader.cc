@@ -432,7 +432,7 @@ std::shared_ptr<ColumnarBatch> VeloxShuffleReaderOutStreamWrapper::next() {
 
   decompressionTimeAccumulator_(decompressTime);
   deserializeTimeAccumulator_(deserializeTime);
-  return std::make_shared<VeloxColumnarBatch>(rowVector);
+  return std::make_shared<VeloxColumnarBatch>(std::move(rowVector));
 }
 
 std::unique_ptr<ColumnarBatchIterator> VeloxColumnarBatchDeserializerFactory::createDeserializer(

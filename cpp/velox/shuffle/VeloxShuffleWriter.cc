@@ -353,8 +353,9 @@ arrow::Status VeloxShuffleWriter::split(std::shared_ptr<ColumnarBatch> cb, int64
       auto& finalRv = *strippedRv;
       if (partitioner_->isSamePid()) {
         samePartitionCount_ += 1;
-        if (batchCount_ % 1000 == 0) {
+        if (batchCount_ > 0) {
           std::cout << "samePartitionCount:" << samePartitionCount_ << std::endl;
+          std::cout << "partitioner_->currentPid():" << partitioner_->currentPid() << std::endl;
         }
         std::vector<std::shared_ptr<arrow::Buffer>> buffers;
         std::vector<facebook::velox::VectorPtr> complexChildren;

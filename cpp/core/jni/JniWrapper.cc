@@ -934,8 +934,8 @@ JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_ShuffleWriterJniWrapper
       .compressionLevel = compressionLevel,
       .bufferedWrite = true,
       .numSubDirs = numSubDirs,
-      .sortBufferMaxSize = sortBufferMaxSize > 0 ? sortBufferMaxSize : kDefaultShuffleWriterBufferSize,
-      .pushBufferMaxSize = pushBufferMaxSize > 0 ? pushBufferMaxSize : kDefaultShuffleWriterBufferSize};
+      .pushBufferMaxSize = pushBufferMaxSize > 0 ? pushBufferMaxSize : kDefaultShuffleWriterBufferSize,
+      .sortBufferMaxSize = sortBufferMaxSize > 0 ? sortBufferMaxSize : kDefaultShuffleWriterBufferSize};
   if (codecJstr != NULL) {
     partitionWriterOptions.codecBackend = getCodecBackend(env, codecBackendJstr);
     partitionWriterOptions.compressionMode = getCompressionMode(env, compressionModeJstr);

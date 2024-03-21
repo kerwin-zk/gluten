@@ -42,7 +42,7 @@ class LocalPartitionWriter : public PartitionWriter {
       bool reuseBuffers,
       bool hasComplexType) override;
 
-  arrow::Status evict(uint32_t partitionId, const char* data, int64_t length) override;
+  arrow::Status evict(uint32_t partitionId, int64_t rawSize, const char* data, int64_t length) override;
 
   /// The stop function performs several tasks:
   /// 1. Opens the final data file.

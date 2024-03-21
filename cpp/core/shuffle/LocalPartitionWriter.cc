@@ -544,7 +544,7 @@ arrow::Status LocalPartitionWriter::evict(
   return arrow::Status::OK();
 }
 
-arrow::Status LocalPartitionWriter::evict(uint32_t partitionId, const char* data, int64_t length) {
+arrow::Status LocalPartitionWriter::evict(uint32_t partitionId, int64_t rawSize, const char* data, int64_t length) {
   return arrow::Status::OK();
 }
 

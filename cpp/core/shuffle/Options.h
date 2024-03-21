@@ -72,6 +72,8 @@ struct PartitionWriterOptions {
   int32_t numSubDirs = kDefaultNumSubDirs;
 
   int64_t pushBufferMaxSize = kDefaultShuffleWriterBufferSize;
+
+  int64_t sortBufferMaxSize = kDefaultShuffleWriterBufferSize;
 };
 
 struct ShuffleWriterMetrics {

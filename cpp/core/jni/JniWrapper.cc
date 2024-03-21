@@ -892,7 +892,8 @@ JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_ShuffleWriterJniWrapper
     jlong firstBatchHandle,
     jlong taskAttemptId,
     jint startPartitionId,
-    jlong pushBufferMaxSize,
+    jint pushBufferMaxSize,
+    jlong sortBufferMaxSize,
     jobject partitionPusher,
     jstring partitionWriterTypeJstr,
     jstring shuffleWriterTypeJstr) {
@@ -933,6 +934,7 @@ JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_ShuffleWriterJniWrapper
       .compressionLevel = compressionLevel,
       .bufferedWrite = true,
       .numSubDirs = numSubDirs,
+      .sortBufferMaxSize = sortBufferMaxSize > 0 ? sortBufferMaxSize : kDefaultShuffleWriterBufferSize,
       .pushBufferMaxSize = pushBufferMaxSize > 0 ? pushBufferMaxSize : kDefaultShuffleWriterBufferSize};
   if (codecJstr != NULL) {
     partitionWriterOptions.codecBackend = getCodecBackend(env, codecBackendJstr);

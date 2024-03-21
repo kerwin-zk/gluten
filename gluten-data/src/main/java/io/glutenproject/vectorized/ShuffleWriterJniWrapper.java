@@ -90,6 +90,7 @@ public class ShuffleWriterJniWrapper implements RuntimeAware {
         taskAttemptId,
         startPartitionId,
         0,
+        0,
         null,
         "local",
         "hash");
@@ -110,7 +111,8 @@ public class ShuffleWriterJniWrapper implements RuntimeAware {
       int compressionLevel,
       int bufferCompressThreshold,
       String compressionMode,
-      long pushBufferMaxSize,
+      int pushBufferMaxSize,
+      long sortBufferMaxSize,
       Object pusher,
       long memoryManagerHandle,
       long handle,
@@ -139,6 +141,7 @@ public class ShuffleWriterJniWrapper implements RuntimeAware {
         taskAttemptId,
         startPartitionId,
         pushBufferMaxSize,
+        sortBufferMaxSize,
         pusher,
         partitionWriterType,
         shuffleWriterType);
@@ -163,7 +166,8 @@ public class ShuffleWriterJniWrapper implements RuntimeAware {
       long handle,
       long taskAttemptId,
       int startPartitionId,
-      long pushBufferMaxSize,
+      int pushBufferMaxSize,
+      long sortBufferMaxSize,
       Object pusher,
       String partitionWriterType,
       String shuffleWriterType);

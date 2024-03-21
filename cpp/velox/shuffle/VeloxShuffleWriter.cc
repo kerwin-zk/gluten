@@ -394,7 +394,7 @@ arrow::Status VeloxShuffleWriter::sort(std::shared_ptr<ColumnarBatch> cb, int64_
     auto rv = veloxColumnBatch->getFlattenedRowVector();
     ;
     RETURN_NOT_OK(initFromRowVector(*rv.get()));
-    RETURN_NOT_OK(doSort(rv, partitionWriter_.get()->options().pushBufferMaxSize));
+    RETURN_NOT_OK(doSort(rv, partitionWriter_.get()->options().sortBufferMaxSize));
   } else if (options_.partitioning == Partitioning::kRange) {
     auto compositeBatch = std::dynamic_pointer_cast<CompositeColumnarBatch>(cb);
     VELOX_CHECK_NOT_NULL(compositeBatch);
@@ -408,7 +408,7 @@ arrow::Status VeloxShuffleWriter::sort(std::shared_ptr<ColumnarBatch> cb, int64_
     auto rvBatch = VeloxColumnarBatch::from(veloxPool_.get(), batches[1]);
     auto rv = rvBatch->getFlattenedRowVector();
     RETURN_NOT_OK(initFromRowVector(*rv.get()));
-    RETURN_NOT_OK(doSort(rv, partitionWriter_.get()->options().pushBufferMaxSize));
+    RETURN_NOT_OK(doSort(rv, partitionWriter_.get()->options().sortBufferMaxSize));
   } else {
     auto veloxColumnBatch = VeloxColumnarBatch::from(veloxPool_.get(), cb);
     VELOX_CHECK_NOT_NULL(veloxColumnBatch);
@@ -424,13 +424,13 @@ arrow::Status VeloxShuffleWriter::sort(std::shared_ptr<ColumnarBatch> cb, int64_
       END_TIMING();
       auto strippedRv = getStrippedRowVector(*rv);
       RETURN_NOT_OK(initFromRowVector(*strippedRv));
-      RETURN_NOT_OK(doSort(strippedRv, partitionWriter_.get()->options().pushBufferMaxSize));
+      RETURN_NOT_OK(doSort(strippedRv, partitionWriter_.get()->options().sortBufferMaxSize));
     } else {
       RETURN_NOT_OK(initFromRowVector(*rv));
       START_TIMING(cpuWallTimingList_[CpuWallTimingCompute]);
       RETURN_NOT_OK(partitioner_->compute(nullptr, rv->size(), batches_.size(), rowVectorIndexMap_));
       END_TIMING();
-      RETURN_NOT_OK(doSort(rv, partitionWriter_.get()->options().pushBufferMaxSize));
+      RETURN_NOT_OK(doSort(rv, partitionWriter_.get()->options().sortBufferMaxSize));
     }
   }
   return arrow::Status::OK();

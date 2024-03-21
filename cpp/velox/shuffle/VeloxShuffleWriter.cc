@@ -441,9 +441,10 @@ arrow::Status VeloxShuffleWriter::evictBatch(
     std::ostringstream* output,
     facebook::velox::OStreamOutputStream* out,
     facebook::velox::RowTypePtr* rowTypePtr) {
+  int64_t rawSize = batch_->size();
   batch_->flush(out);
   std::string outputStr = output->str();
-  RETURN_NOT_OK(partitionWriter_->evict(partitionId, outputStr.c_str(), outputStr.size()));
+  RETURN_NOT_OK(partitionWriter_->evict(partitionId, rawSize, outputStr.c_str(), outputStr.size()));
   batch_.reset();
   output->clear();
   output->str("");

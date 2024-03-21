@@ -44,7 +44,7 @@ class CelebornPartitionWriter final : public RemotePartitionWriter {
       bool reuseBuffers,
       bool hasComplexType) override;
 
-  arrow::Status evict(uint32_t partitionId, const char* data, int64_t length) override;
+  arrow::Status evict(uint32_t partitionId, int64_t rawSize, const char* data, int64_t length) override;
 
   arrow::Status reclaimFixedSize(int64_t size, int64_t* actual) override;
 

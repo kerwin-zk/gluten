@@ -76,7 +76,9 @@ arrow::Status CelebornPartitionWriter::evict(
   return arrow::Status::OK();
 }
 
-arrow::Status CelebornPartitionWriter::evict(uint32_t partitionId, const char* data, int64_t length) {
+arrow::Status CelebornPartitionWriter::evict(uint32_t partitionId, int64_t rawSize, const char* data, int64_t length) {
+  rawPartitionLengths_[partitionId] += rawSize;
+  ScopedTimer timer(&spillTime_);
   bytesEvicted_[partitionId] += celebornClient_->pushPartitionData(partitionId, data, length);
   return arrow::Status::OK();
 }

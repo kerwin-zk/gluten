@@ -375,7 +375,6 @@ arrow::Status VeloxShuffleWriter::doSort(facebook::velox::RowVectorPtr rv, int64
   currentInputColumnBytes_ += rv->estimateFlatSize();
   batches_.push_back(rv);
   if (currentInputColumnBytes_ > memLimit) {
-    std::cout << "currentInputColumnBytes_ > memLimit!!!" << currentInputColumnBytes_ << "**" << memLimit << std::endl;
     RETURN_NOT_OK(createOutputRowVector());
     for (auto pid = 0; pid < numPartitions(); ++pid) {
       RETURN_NOT_OK(evictRowVector(pid));
@@ -461,7 +460,6 @@ arrow::Status VeloxShuffleWriter::evictRowVector(uint32_t partitionId) {
   facebook::velox::OStreamOutputStream out(&output);
 
   if (options_.partitioning != Partitioning::kSingle) {
-    std::cout << "hash&&&" << maxBatchNum << std::endl;
     if (auto it = outputRowVectors_.find(partitionId); it != outputRowVectors_.end()) {
       const int32_t outputSize = it->second->size();
       int32_t num = outputSize / maxBatchNum;
@@ -488,7 +486,6 @@ arrow::Status VeloxShuffleWriter::evictRowVector(uint32_t partitionId) {
       }
     }
   } else {
-    std::cout << "single&&&" << maxBatchNum << std::endl;
     for (facebook::velox::RowVectorPtr rowVectorPtr : batches_) {
       rowNum += rowVectorPtr->size();
       batch_->append(rowVectorPtr);
@@ -506,10 +503,8 @@ arrow::Status VeloxShuffleWriter::evictRowVector(uint32_t partitionId) {
 
 arrow::Status VeloxShuffleWriter::createOutputRowVector() {
   if (options_.partitioning == Partitioning::kSingle) {
-    std::cout << "options_.partitioning == Partitioning::kSingle" << std::endl;
     return arrow::Status::OK();
   }
-  std::cout << "options_.partitioning == Partitioning::hash" << std::endl;
   auto rowTypePtr = std::static_pointer_cast<const facebook::velox::RowType>(rowType_.value());
 
   for (const auto& it : rowVectorIndexMap_) {
@@ -545,7 +540,6 @@ arrow::Status VeloxShuffleWriter::createOutputRowVector() {
 
 arrow::Status VeloxShuffleWriter::stop() {
   if (options_.shuffleWriterType == kSortShuffle) {
-    std::cout << "stop" << std::endl;
     RETURN_NOT_OK(createOutputRowVector());
     for (auto pid = 0; pid < numPartitions(); ++pid) {
       RETURN_NOT_OK(evictRowVector(pid));

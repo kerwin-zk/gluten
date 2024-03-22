@@ -464,17 +464,12 @@ arrow::Status VeloxShuffleWriter::evictRowVector(uint32_t partitionId) {
   if (options_.partitioning != Partitioning::kSingle) {
     if (auto it = outputRowVectors_.find(partitionId); it != outputRowVectors_.end()) {
       const int32_t outputSize = it->second->size();
-      int32_t numBatches = (outputSize + maxBatchNum - 1) / maxBatchNum;
-      std::vector<facebook::velox::IndexRange> ranges;
-      ranges.reserve(numBatches);
-      for (int i = 0; i < numBatches; ++i) {
-        int32_t start = i * maxBatchNum;
+      for (int start = 0; start < outputSize; start += maxBatchNum) {
         int32_t length = std::min(maxBatchNum, outputSize - start);
-        ranges.push_back(facebook::velox::IndexRange{start, length});
+        facebook::velox::IndexRange range{start, length};
+        batch_->append(outputRowVectors_[partitionId], folly::Range<facebook::velox::IndexRange*>(&range, 1));
+        RETURN_NOT_OK(evictBatch(partitionId, &output, &out, &rowTypePtr));
       }
-
-      batch_->append(outputRowVectors_[partitionId], ranges);
-      RETURN_NOT_OK(evictBatch(partitionId, &output, &out, &rowTypePtr));
     }
   } else {
     for (facebook::velox::RowVectorPtr rowVectorPtr : batches_) {

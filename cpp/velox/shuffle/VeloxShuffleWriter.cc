@@ -384,6 +384,7 @@ arrow::Status VeloxShuffleWriter::doSort(facebook::velox::RowVectorPtr rv, int64
     batches_.clear();
     currentInputColumnBytes_ = 0;
   }
+  setSplitState(SplitState::kInit);
   return arrow::Status::OK();
 }
 
@@ -443,7 +444,7 @@ arrow::Status VeloxShuffleWriter::evictBatch(
     facebook::velox::RowTypePtr* rowTypePtr) {
   int64_t rawSize = batch_->size();
   batch_->flush(out);
-  std::string outputStr = output->str();
+  const std::string& outputStr = output->str();
   RETURN_NOT_OK(partitionWriter_->evict(partitionId, rawSize, outputStr.c_str(), outputStr.size()));
   batch_.reset();
   output->clear();
@@ -463,28 +464,17 @@ arrow::Status VeloxShuffleWriter::evictRowVector(uint32_t partitionId) {
   if (options_.partitioning != Partitioning::kSingle) {
     if (auto it = outputRowVectors_.find(partitionId); it != outputRowVectors_.end()) {
       const int32_t outputSize = it->second->size();
-      int32_t num = outputSize / maxBatchNum;
-      int32_t remain = outputSize % maxBatchNum;
-      std::vector<std::vector<facebook::velox::IndexRange>> vectorIndex;
-      if (remain > 0) {
-        vectorIndex.resize(num + 1);
-      } else {
-        vectorIndex.resize(num);
+      int32_t numBatches = (outputSize + maxBatchNum - 1) / maxBatchNum;
+      std::vector<facebook::velox::IndexRange> ranges;
+      ranges.reserve(numBatches);
+      for (int i = 0; i < numBatches; ++i) {
+        int32_t start = i * maxBatchNum;
+        int32_t length = std::min(maxBatchNum, outputSize - start);
+        ranges.push_back(facebook::velox::IndexRange{start, length});
       }
 
-      for (int i = 0; i < num; i++) {
-        auto& vec = vectorIndex[i];
-        vec.push_back(facebook::velox::IndexRange{i * maxBatchNum, maxBatchNum});
-      }
-      if (remain > 0) {
-        auto& vec = vectorIndex[num];
-        vec.push_back(facebook::velox::IndexRange{num * maxBatchNum, remain});
-      }
-
-      for (const auto& value : vectorIndex) {
-        batch_->append(outputRowVectors_[partitionId], value);
-        RETURN_NOT_OK(evictBatch(partitionId, &output, &out, &rowTypePtr));
-      }
+      batch_->append(outputRowVectors_[partitionId], ranges);
+      RETURN_NOT_OK(evictBatch(partitionId, &output, &out, &rowTypePtr));
     }
   } else {
     for (facebook::velox::RowVectorPtr rowVectorPtr : batches_) {

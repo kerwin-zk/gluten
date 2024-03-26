@@ -144,8 +144,6 @@ class VeloxShuffleWriter final : public ShuffleWriter {
 
   arrow::Status evictRowVector(uint32_t partitionId) override;
 
-  arrow::Status createOutputRowVector();
-
   arrow::Status evictBatch(
       uint32_t partitionId,
       std::ostringstream* output,

@@ -375,7 +375,6 @@ arrow::Status VeloxShuffleWriter::doSort(facebook::velox::RowVectorPtr rv, int64
   currentInputColumnBytes_ += rv->estimateFlatSize();
   batches_.push_back(rv);
   if (currentInputColumnBytes_ > memLimit) {
-    RETURN_NOT_OK(createOutputRowVector());
     for (auto pid = 0; pid < numPartitions(); ++pid) {
       RETURN_NOT_OK(evictRowVector(pid));
       partition2RowCount_[pid] = 0;
@@ -462,14 +461,21 @@ arrow::Status VeloxShuffleWriter::evictRowVector(uint32_t partitionId) {
   facebook::velox::OStreamOutputStream out(&output);
 
   if (options_.partitioning != Partitioning::kSingle) {
-    if (auto it = outputRowVectors_.find(partitionId); it != outputRowVectors_.end()) {
-      const int32_t outputSize = it->second->size();
-      for (int start = 0; start < outputSize; start += maxBatchNum) {
-        int32_t length = std::min(maxBatchNum, outputSize - start);
-        facebook::velox::IndexRange range{start, length};
-        batch_->append(outputRowVectors_[partitionId], folly::Range<facebook::velox::IndexRange*>(&range, 1));
-        RETURN_NOT_OK(evictBatch(partitionId, &output, &out, &rowTypePtr));
+    if (auto it = rowVectorIndexMap_.find(partitionId); it != rowVectorIndexMap_.end()) {
+      int32_t partitionId = it->first;
+      auto rowVectorIndex = it->second;
+      const int32_t outputSize = rowVectorIndex.size();
+      for (int start = 0; start < outputSize; start++) {
+        const int32_t vectorIndex = static_cast<int32_t>(rowVectorIndex.at(start) >> 32);
+        const int32_t rowIndex = static_cast<int32_t>(rowVectorIndex.at(start) & 0xFFFFFFFFLL);
+        facebook::velox::IndexRange range{rowIndex, 1};
+        batch_->append(batches_[vectorIndex], folly::Range<facebook::velox::IndexRange*>(&range, 1));
+        if (start % maxBatchNum == 0) {
+          RETURN_NOT_OK(evictBatch(partitionId, &output, &out, &rowTypePtr));
+        }
       }
+      rowNum = outputSize % maxBatchNum;
+      rowVectorIndex.clear();
     }
   } else {
     for (facebook::velox::RowVectorPtr rowVectorPtr : batches_) {
@@ -487,46 +493,8 @@ arrow::Status VeloxShuffleWriter::evictRowVector(uint32_t partitionId) {
   return arrow::Status::OK();
 }
 
-arrow::Status VeloxShuffleWriter::createOutputRowVector() {
-  if (options_.partitioning == Partitioning::kSingle) {
-    return arrow::Status::OK();
-  }
-  auto rowTypePtr = std::static_pointer_cast<const facebook::velox::RowType>(rowType_.value());
-
-  for (const auto& it : rowVectorIndexMap_) {
-    int32_t partitionId = it.first;
-    const std::vector<int64_t>& rowVectorIndex = it.second;
-    outputRowVectors_[partitionId] = std::dynamic_pointer_cast<facebook::velox::RowVector>(
-        facebook::velox::BaseVector::create(rowTypePtr, rowVectorIndex.size(), veloxPool_.get()));
-  }
-
-  std::vector<folly::Future<folly::Unit>> futures;
-
-  for (const auto& it : rowVectorIndexMap_) {
-    int32_t partitionId = it.first;
-    auto rowVectorIndex = it.second;
-    std::unordered_map<int32_t, std::vector<facebook::velox::BaseVector::CopyRange>> vectorIndexMap;
-    for (const auto& value : rowVectorIndex) {
-      const int32_t vectorIndex = static_cast<int32_t>(value >> 32);
-      const int32_t rowIndex = static_cast<int32_t>(value & 0xFFFFFFFFLL);
-      auto& vec = vectorIndexMap[vectorIndex];
-      int32_t rowCount = partition2RowCount_[partitionId];
-      vec.push_back({.sourceIndex = rowIndex, .targetIndex = rowCount, .count = 1});
-      partition2RowCount_[partitionId]++;
-    }
-
-    for (const auto& value : vectorIndexMap) {
-      const int32_t vectorIndex = value.first;
-      outputRowVectors_[partitionId]->copyRanges(batches_[vectorIndex].get(), value.second);
-    }
-  }
-  rowVectorIndexMap_.clear();
-  return arrow::Status::OK();
-}
-
 arrow::Status VeloxShuffleWriter::stop() {
   if (options_.shuffleWriterType == kSortShuffle) {
-    RETURN_NOT_OK(createOutputRowVector());
     for (auto pid = 0; pid < numPartitions(); ++pid) {
       RETURN_NOT_OK(evictRowVector(pid));
       partition2RowCount_[pid] = 0;
@@ -1330,7 +1298,6 @@ arrow::Status VeloxShuffleWriter::reclaimFixedSize(int64_t size, int64_t* actual
     *actual = reclaimed;
   } else if (options_.shuffleWriterType == kSortShuffle) {
     if (splitState_ == SplitState::kInit) {
-      RETURN_NOT_OK(createOutputRowVector());
       for (auto pid = 0; pid < numPartitions(); ++pid) {
         RETURN_NOT_OK(evictRowVector(pid));
         partition2RowCount_[pid] = 0;

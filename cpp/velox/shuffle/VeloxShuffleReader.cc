@@ -427,28 +427,26 @@ std::shared_ptr<ColumnarBatch> VeloxShuffleReaderOutStreamWrapper::next() {
     return nullptr;
   }
 
+  auto merged = std::dynamic_pointer_cast<facebook::velox::RowVector>(
+  facebook::velox::BaseVector::create(rowType_, batchSize_, veloxPool_.get()));
+
+  int32_t index = 0;
   while (rowCount_ < batchSize_ && in_->hasNext()) {
-    std::shared_ptr<facebook::velox::RowVector> rowVector;
+    RowVectorPtr rowVector;
     VectorStreamGroup::read(in_.get(), veloxPool_.get(), rowType_, &rowVector, &serdeOptions_);
     rowCount_ += rowVector->size();
-    batches_.push_back(rowVector);
+    merged->copy(rowVector.get(), index, 0, rowVector->size());
+    index += rowVector->size();
   }
+
+  merged->resize(rowCount_);
 
   if (rowCount_ <= 0) {
     return nullptr;
   }
 
-  auto merged = std::dynamic_pointer_cast<facebook::velox::RowVector>(
-    facebook::velox::BaseVector::create(rowType_, rowCount_, veloxPool_.get()));
-
-  int32_t index = 0;
-  for (auto& val : batches_) {
-    merged->copy(val.get(), index, 0, val->size());
-    index += val->size();
-  }
 
   rowCount_ = 0;
-  batches_.clear();
 
   int64_t decompressTime = 0LL;
   int64_t deserializeTime = 0LL;

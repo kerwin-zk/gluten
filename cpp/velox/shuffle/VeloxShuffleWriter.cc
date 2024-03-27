@@ -464,16 +464,25 @@ arrow::Status VeloxShuffleWriter::evictRowVector(uint32_t partitionId) {
     if (auto it = rowVectorIndexMap_.find(partitionId); it != rowVectorIndexMap_.end()) {
       auto rowVectorIndex = it->second;
       const int32_t outputSize = rowVectorIndex.size();
+
+      // 使用map来分组存储同一个vectorIndex的rowIndex
+      std::unordered_map<int32_t, std::vector<facebook::velox::IndexRange>> groupedIndices;
+
       for (int start = 0; start < outputSize; start++) {
         const int32_t vectorIndex = static_cast<int32_t>(rowVectorIndex.at(start) >> 32);
         const int32_t rowIndex = static_cast<int32_t>(rowVectorIndex.at(start) & 0xFFFFFFFFLL);
-        facebook::velox::IndexRange range{rowIndex, 1};
-        batch_->append(batches_[vectorIndex], folly::Range<facebook::velox::IndexRange*>(&range, 1));
-        if (start % maxBatchNum == 0) {
+        groupedIndices[vectorIndex].push_back({rowIndex, 1});
+      }
+
+      for (auto& pair : groupedIndices) {
+        batch_->append(batches_[pair.first], pair.second);
+        rowNum += pair.second.size();
+        if (rowNum >= maxBatchNum) {
+          rowNum = 0;
           RETURN_NOT_OK(evictBatch(partitionId, &output, &out, &rowTypePtr));
         }
       }
-      rowNum = outputSize % maxBatchNum;
+
       rowVectorIndex.clear();
       rowVectorIndexMap_.erase(partitionId);
     }

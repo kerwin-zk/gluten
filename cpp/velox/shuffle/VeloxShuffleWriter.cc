@@ -462,7 +462,6 @@ arrow::Status VeloxShuffleWriter::evictRowVector(uint32_t partitionId) {
 
   if (options_.partitioning != Partitioning::kSingle) {
     if (auto it = rowVectorIndexMap_.find(partitionId); it != rowVectorIndexMap_.end()) {
-      int32_t partitionId = it->first;
       auto rowVectorIndex = it->second;
       const int32_t outputSize = rowVectorIndex.size();
       for (int start = 0; start < outputSize; start++) {
@@ -476,6 +475,7 @@ arrow::Status VeloxShuffleWriter::evictRowVector(uint32_t partitionId) {
       }
       rowNum = outputSize % maxBatchNum;
       rowVectorIndex.clear();
+      rowVectorIndexMap_.erase(partitionId);
     }
   } else {
     for (facebook::velox::RowVectorPtr rowVectorPtr : batches_) {

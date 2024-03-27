@@ -427,33 +427,25 @@ std::shared_ptr<ColumnarBatch> VeloxShuffleReaderOutStreamWrapper::next() {
     return nullptr;
   }
 
-  auto merged = std::dynamic_pointer_cast<facebook::velox::RowVector>(
-  facebook::velox::BaseVector::create(rowType_, batchSize_, veloxPool_.get()));
+  RowVectorPtr rowVector;
+  VectorStreamGroup::read(in_.get(), veloxPool_.get(), rowType_, &rowVector, &serdeOptions_);
 
-  int32_t index = 0;
-  while (rowCount_ < batchSize_ && in_->hasNext()) {
-    RowVectorPtr rowVector;
-    VectorStreamGroup::read(in_.get(), veloxPool_.get(), rowType_, &rowVector, &serdeOptions_);
-    rowCount_ += rowVector->size();
-    merged->copy(rowVector.get(), index, 0, rowVector->size());
-    index += rowVector->size();
+  if (rowVector->size() >= batchSize_) {
+    return std::make_shared<VeloxColumnarBatch>(std::move(rowVector));
   }
 
-  merged->resize(rowCount_);
-
-  if (rowCount_ <= 0) {
-    return nullptr;
+  while (rowVector->size() < batchSize_ && in_->hasNext()) {
+    RowVectorPtr rowVectorTemp;
+    VectorStreamGroup::read(in_.get(), veloxPool_.get(), rowType_, &rowVectorTemp, &serdeOptions_);
+    rowVector->append(rowVectorTemp.get());
   }
-
-
-  rowCount_ = 0;
 
   int64_t decompressTime = 0LL;
   int64_t deserializeTime = 0LL;
 
   decompressionTimeAccumulator_(decompressTime);
   deserializeTimeAccumulator_(deserializeTime);
-  return std::make_shared<VeloxColumnarBatch>(std::move(merged));
+  return std::make_shared<VeloxColumnarBatch>(std::move(rowVector));
 }
 
 std::unique_ptr<ColumnarBatchIterator> VeloxColumnarBatchDeserializerFactory::createDeserializer(

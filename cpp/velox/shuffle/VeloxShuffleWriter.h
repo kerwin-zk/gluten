@@ -431,8 +431,6 @@ class VeloxShuffleWriter final : public ShuffleWriter {
 
   std::vector<facebook::velox::RowVectorPtr> batches_;
 
-  std::unordered_map<int32_t, facebook::velox::RowVectorPtr> outputRowVectors_;
-
   std::unordered_map<int32_t, std::vector<int64_t>> rowVectorIndexMap_;
 
   std::unordered_map<int32_t, std::vector<int64_t>> rowVectorPartitionMap_;

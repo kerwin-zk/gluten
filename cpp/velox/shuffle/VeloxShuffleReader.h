@@ -79,6 +79,7 @@ class VeloxShuffleReaderOutStreamWrapper : public ColumnarBatchIterator {
   VeloxShuffleReaderOutStreamWrapper(
       const std::shared_ptr<facebook::velox::memory::MemoryPool>& veloxPool,
       const facebook::velox::RowTypePtr& rowType,
+      int32_t batchSize,
       const std::string compressionTypeStr,
       const std::function<void(int64_t)> decompressionTimeAccumulator,
       const std::function<void(int64_t)> deserializeTimeAccumulator,
@@ -89,6 +90,10 @@ class VeloxShuffleReaderOutStreamWrapper : public ColumnarBatchIterator {
  private:
   std::shared_ptr<facebook::velox::memory::MemoryPool> veloxPool_;
   facebook::velox::RowTypePtr rowType_;
+  std::vector<facebook::velox::RowVectorPtr> batches_;
+  bool reachEos_{false};
+  int32_t rowCount_;
+  int32_t batchSize_;
   std::string compressionTypeStr_;
   facebook::velox::serializer::presto::PrestoVectorSerde::PrestoOptions serdeOptions_;
   std::function<void(int64_t)> decompressionTimeAccumulator_;

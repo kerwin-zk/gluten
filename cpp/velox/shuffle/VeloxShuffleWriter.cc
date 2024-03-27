@@ -379,7 +379,6 @@ arrow::Status VeloxShuffleWriter::doSort(facebook::velox::RowVectorPtr rv, int64
       RETURN_NOT_OK(evictRowVector(pid));
       partition2RowCount_[pid] = 0;
     }
-    outputRowVectors_.clear();
     batches_.clear();
     currentInputColumnBytes_ = 0;
   }
@@ -508,7 +507,6 @@ arrow::Status VeloxShuffleWriter::stop() {
       RETURN_NOT_OK(evictRowVector(pid));
       partition2RowCount_[pid] = 0;
     }
-    outputRowVectors_.clear();
     batches_.clear();
     currentInputColumnBytes_ = 0;
   } else if (options_.partitioning != Partitioning::kSingle) {
@@ -1311,7 +1309,6 @@ arrow::Status VeloxShuffleWriter::reclaimFixedSize(int64_t size, int64_t* actual
         RETURN_NOT_OK(evictRowVector(pid));
         partition2RowCount_[pid] = 0;
       }
-      outputRowVectors_.clear();
       batches_.clear();
       *actual = currentInputColumnBytes_;
       currentInputColumnBytes_ = 0;
